@@ -1,0 +1,156 @@
+---
+title: "Linear Models"
+author: "Linh Tran"
+date: "11/21/2020"
+output: 
+    html_document:
+      toc: true
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(p8105.datasets)
+
+knitr::opts_chunk$set(
+  fig.width = 6,
+  fig.asp = .6,
+  out.width = "90%"
+)
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+scale_colour_discrete = scale_color_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+
+
+set.seed(1)
+
+```
+
+# Linear models
+
+Load data
+
+```{r}
+data("nyc_airbnb")
+
+nyc_airbnb = 
+  nyc_airbnb %>% 
+  mutate(stars = review_scores_location / 2) %>% 
+  rename(
+    borough = neighbourhood_group,
+    neighborhood = neighbourhood) %>% 
+  filter(borough != "Staten Island") %>% 
+  select(price, stars, borough, neighborhood, room_type)
+
+```
+
+## Model fitting
+
+Scatterplot:
+
+```{r}
+#price = continuous variable, stars = numeric predictor, borough = categorical predictor
+
+nyc_airbnb %>% 
+  ggplot(aes(x = stars, y = price, color = borough)) +
+  geom_point()
+```
+
+Fit a model consider price as an outcome that may depend on rating and borough
+
+```{r}
+fit = lm(price ~ stars + borough, data = nyc_airbnb)
+fit
+```
+
+Look at the result
+
+```{r, include = FALSE}
+fit
+summary(fit)
+summary(fit)$coef
+coef(fit)
+fitted.values(fit)
+residuals(fit)
+
+broom::glance(fit)  #gives me some useful numbers
+```
+
+Better way to look at the result:
+
+```{r}
+
+broom::tidy(fit) %>% #structured as a df
+  select(-std.error, -statistic) %>% 
+  mutate(
+    term = str_replace(term, "borough", "Borough: ")
+  ) %>% 
+  knitr::kable(digits = 3)
+```
+
+
+R treat categorical (factor) covariates as such: indicator variables are created for each non-reference category and included in model, and the factor level is treated as the reference.
+
+```{r}
+nyc_airbnb = 
+  nyc_airbnb %>% 
+  mutate(
+    borough = fct_infreq(borough),
+    room_type = fct_infreq(room_type))
+
+fit = lm(price ~ stars + borough, data = nyc_airbnb)
+```
+
+## Be in control of factors
+
+```{r}
+nyc_airbnb =
+  nyc_airbnb %>% 
+  mutate(
+    borough = fct_infreq(borough),
+    room_type = fct_infreq(room_type)
+  )
+
+nyc_airbnb %>% 
+  ggplot(aes(x = stars, y = price, color = borough)) +
+  geom_point()
+```
+
+Refit my model:
+
+```{r}
+fit = lm(price ~ stars + borough, data = nyc_airbnb)
+
+broom::tidy(fit)
+```
+
+## Tidying output
+
+
+
+## Diagnostics
+
+
+
+
+## Hypothesis testing
+
+
+
+## Nesting data
+
+
+
+## Binary outcomes
+
+
+# Cross Validation
+
+
+
+
+
+# Bootstrapping
