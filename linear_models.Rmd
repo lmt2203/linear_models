@@ -65,10 +65,52 @@ Fit a model consider price as an outcome that may depend on rating and borough
 
 ```{r}
 fit = lm(price ~ stars + borough, data = nyc_airbnb)
-fit
+summary(fit)
+
 ```
 
-You can also specify an intercept-only model (outcome ~ 1), a model with no intercept (outcome ~ 0 + ...), and a model using all available predictors (outcome ~ .)
+You can also specify an intercept-only model (outcome ~ 1), a model with no intercept (outcome ~ 0 + ...), and a model using all available predictors (outcome ~ .).\
+
+R will treat categorical (factor) covariates predictably: indicator variables are created for each non-reference category and included in your model, and the factor level is treated as the reference. Being careful with factors is therefore critical!
+
+```{r}
+nyc_airbnb = 
+  nyc_airbnb %>% 
+  mutate(
+    borough = fct_infreq(borough),
+    room_type = fct_infreq(room_type))
+
+fit = lm(price ~ stars + borough, data = nyc_airbnb)
+```
+
+**Note**: Changing reference categories won't change "fit" or statistical significance, but can affect ease of interpretation.
+
+
+### Be in control of factors
+
+R treat categorical (factor) covariates as such: indicator variables are created for each non-reference category and included in model, and the factor level is treated as the reference.
+
+```{r}
+nyc_airbnb =
+  nyc_airbnb %>% 
+  mutate(
+    borough = fct_infreq(borough),
+    room_type = fct_infreq(room_type)
+  )
+
+nyc_airbnb %>% 
+  ggplot(aes(x = stars, y = price, color = borough)) +
+  geom_point()
+```
+
+Refit my model: now Manhattan is the reference 
+
+```{r}
+fit = lm(price ~ stars + borough, data = nyc_airbnb)
+
+broom::tidy(fit)
+```
+
 
 ## Tidying output
 
@@ -96,46 +138,25 @@ broom::tidy(fit) %>% #structured as a df
   knitr::kable(digits = 3)
 ```
 
-## Be in control of factors
-
-R treat categorical (factor) covariates as such: indicator variables are created for each non-reference category and included in model, and the factor level is treated as the reference.
-
-```{r}
-nyc_airbnb =
-  nyc_airbnb %>% 
-  mutate(
-    borough = fct_infreq(borough),
-    room_type = fct_infreq(room_type)
-  )
-
-nyc_airbnb %>% 
-  ggplot(aes(x = stars, y = price, color = borough)) +
-  geom_point()
-```
-
-Refit my model: now Manhattan is the reference 
-
-```{r}
-fit = lm(price ~ stars + borough, data = nyc_airbnb)
-
-broom::tidy(fit)
-```
-
 ## Diagnostics
 
-Regression diagnostics can identify issues in model fit, especially related to certian failures in model assumptions. The `modelr` package can be used to add residuals and fitted values to a dataframe.
+Regression diagnostics can identify issues in model fit, especially related to certian failures in model assumptions. Examining residuals and fitted values are therefore an important component of any modeling exercise. \
+The `modelr` package can be used to add residuals and fitted values to a dataframe.
 
 ```{r}
 modelr::add_residuals(data = nyc_airbnb, model = fit)
 # First one is $9.47 higher than what my model predicts.
+
+modelr::add_predictions(nyc_airbnb, fit)
+
 ```
 
 Look at distribution of residuals:
 
 ```{r}
-modelr::add_residuals(data = nyc_airbnb, model = fit) %>% 
-  ggplot(aes(x = borough, y = resid)) +
-  geom_violin() +
+nyc_airbnb %>% 
+  modelr::add_residuals(fit) %>% 
+  ggplot(aes(x = borough, y = resid)) + geom_violin() +
   ylim(-500, 1500)
 
 #Distributions of residuals are skewed. 
@@ -149,34 +170,35 @@ nyc_airbnb %>%
 #Distributions of residual spread out as star counts increases. 
 ```
 
-For exclusion of outliers: transform the price variable (e.g. using a log transformation), or fitting a model that is robust to outliers. E.g: a combination of median regression, which is less sensitive to outliers than OLS, maybe bootstrapping for inference. 
+For exclusion of outliers: transform the price variable (e.g. using a log transformation), or fitting a model that is robust to outliers. E.g: a combination of median regression, which is less sensitive to outliers than OLS, maybe bootstrapping for inference. \
+For this example, I'd probably use a combination of median regression, which is less sensitive to outliers than OLS, and maybe bootstrapping for inference. If that’s not feasible, I’d omit rentals with price over $1000 (< 0.5% of the sample) from the primary analysis and examine these separately. I usually avoid transforming the outcome, because the results model is difficult to interpret.)
+
 
 ## Hypothesis testing
 
 * Model summaries include results of t-tests for single coefficients, and are the standard way of assessing statistical significance.
-* Testing multiple coef is somewhat more complicated.  A useful approach is to use nested models, meaning that the terms in a simple “null” model are a subset of the terms in a more complex “alternative” model.
-
-This does t-test by default
+* Testing multiple coef is somewhat more complicated.  A useful approach is to use `nested models`, meaning that the terms in a simple “null” model are a subset of the terms in a more complex “alternative” model.\
+* Test of this kind are required to assess the significance of a categorical predictor with more than 2 levels, as in this example:
 
 ```{r}
-fit %>% 
-  broom::tidy()
+fit_null = lm(price ~ stars + borough, data = nyc_airbnb)
+fit_alt = lm(price ~ stars + borough + room_type, data = nyc_airbnb)
+
+summary(fit_null)
+summary(fit_alt)
 ```
 
-Assess the significance of a categorical predictor with more than two levels 
+The test of interest is implemented in the `anova` function which, of course, can be summarized using `broom::tidy()` - only for `nested` models. 
 
 ```{r}
-fit_null = lm(price ~ stars, data = nyc_airbnb)
-fit_alt = lm(price~stars + borough, data = nyc_airbnb)
-
 anova(fit_null, fit_alt) %>% 
   broom::tidy()
 ```
 
 
-## Nest data, fit models
+## Nesting data
 
-* Fitting models to datasets nested within variables, meaning, that we'll use `nest` to create a list column containing datasets and fit separate models to each. 
+* Fitting models to datasets nested within variables, meaning, that we'll use `nest` to create a list column containing datasets and fit separate models to each. \
 
 In the airbnb data, we might think that star ratings and room type affects price differently in each borough. One way to allow this kind of effect modification is through interaction terms:
 
@@ -191,7 +213,8 @@ broom::tidy(fit)
 nyc_airbnb %>% 
   lm(price ~ stars * borough + room_type * borough, data = .) %>% 
   broom::tidy() %>% 
-  knitr::kable(digits = 3)
+  knitr::kable(digits = 3) 
+
 ```
 
 Alternatively, we can nest within boroughs and fit borough-specific models associating price with rating and room type:
@@ -211,47 +234,76 @@ nyc_airbnb %>%
     names_from = borough,
     values_from = estimate
   )
-  
+
+# Another way
+nest_lm_res =
+  nyc_airbnb %>% 
+  nest(data = -borough) %>% 
+  mutate(
+    models = map(data, ~lm(price ~ stars + room_type, data = .x)),
+    results = map(models, broom::tidy)) %>% 
+  select(-data, -models) %>% 
+  unnest(results)
+
+nest_lm_res %>% 
+  select(borough, term, estimate) %>% 
+  mutate(term = fct_inorder(term)) %>% 
+  pivot_wider(
+    names_from = term, values_from = estimate) %>% 
+  knitr::kable(digits = 3) # the estimates here are the same as those in the model containing interactions, but are easier to extract from the output.
 ```
 
-**Fitting models to nested datasets is a way of performing stratified analyses. These have a tradeoff: stratified models make it easy to interpret covariate effects in each stratum, but don’t provide a mechanism for assessing the significance of differences across strata.**
+* Fitting models to nested datasets is a way of performing stratified analyses. 
+* These have a tradeoff: stratified models make it easy to interpret covariate effects in each stratum, but don’t provide a mechanism for assessing the significance of differences across strata.\
 
 An even more extreme example is the assessment of neighborhood effects in Manhattan. The code chunk below fits neighborhood-specific models and shows neighborhood-specific estimates for the coefficients related to room type:
-
-```{r}
-nyc_airbnb %>% 
-  filter(borough == "Manhattan") %>% 
-  nest(data = -neighborhood) %>% 
-  mutate(
-    models = map(.x = data, ~lm(price ~ stars + room_type, data = .x)),
-    results = map(models, broom::tidy)
-  ) %>% 
-  select(-data, -models) %>% 
-  unnest(results)  %>% 
-  filter(str_detect(term, "room_type")) %>% 
-  ggplot(aes(x = neighborhood, y = estimate)) +
-  geom_point() +
-  facet_wrap(. ~ term) +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
-
-#There is, generally speaking, a reduction in room price for a private room or a shared room compared to an entire apartment, but this varies quite a bit across neighborhoods.
-```
-
-Code to fit a mixed model with neighborhood-level random intercepts and random slopes for each room type
 
 ```{r}
 manhattan_airbnb =
   nyc_airbnb %>% 
   filter(borough == "Manhattan")
 
+manhattan_nest_lm_res =
+  manhattan_airbnb %>% 
+  nest(data = -neighborhood) %>% 
+  mutate(
+    models = map(data, ~lm(price ~ stars + room_type, data = .x)),
+    results = map(models, broom::tidy)) %>% 
+  select(-data, -models) %>% 
+  unnest(results)
+```
+
+This chunk shows neighborhood-specific estimates for the coefficients related to room type.
+
+```{r}
+manhattan_nest_lm_res %>% 
+  filter(str_detect(term, "room_type")) %>% 
+  ggplot(aes(x = neighborhood, y = estimate)) + 
+  geom_point() + 
+  facet_wrap(~term) + 
+  theme(axis.text.x = element_text(angle = 80, hjust = 1))
+```
+
+There is, generally speaking, a reduction in room price for a private room or a shared room compared to an entire apartment, but this varies quite a bit across neighborhoods.\ 
+
+With this many factor levels, it really isn’t a good idea to fit models with main effects or interactions for each. Instead, you’d be best-off using a mixed model, with random intercepts and slopes for each neighborhood
+
+```{r}
 manhattan_airbnb %>% 
   lme4::lmer(price ~ stars + room_type + (1 + room_type | neighborhood), data = .) %>% 
   broom.mixed::tidy()
 ```
 
+
 ## Binary outcomes
 
 Logistic regression is useful for binary outcomes
+
+* `lm()` assumes the error terms are iid with mean 0 and constant variance
+   + assume the RV is normal (family = Gaussian)
+* `glm()` generalizes the linear model into what is known as the exponential family.
+   + allows for the obs to take on different RV (e.g. binomial, Poisson, multinomial)
+   + must specify the family that the observations fall under. 
 
 ```{r, eval = FALSE}
 baltimore_df = 
@@ -294,9 +346,9 @@ baltimore_df %>%
 
 * Cross validation provides a way to compare the predictive performance of competing methods. 
 
-## Simulate data
+## Cross validation -- "by hand"
 
-non-linear dataset:
+Start with a simulated example. The code chunk below generates data under a non-linear model. 
 
 ```{r}
 nonlin_df = 
@@ -311,24 +363,18 @@ nonlin_df %>%
   geom_point()
 ```
 
-
-## Cross validation -- "by hand"
-
-Get training and testing datasets
+Split this data into training and testing sets (using `anti_join`), and replot showing the split. Our goal will be to use the training data (in `black`) to build candidate models, and then see how these models predict in the testing data (in `red`).
 
 ```{r}
 train_df = sample_n(nonlin_df,size = 80)
 test_df = anti_join(nonlin_df, train_df, by = "id")
+
+ggplot(train_df, aes(x = x, y = y)) + 
+  geom_point() + 
+  geom_point(data = test_df, color = "red")
 ```
 
-Fit three models
-
-```{r}
-linear_mod = lm(y ~ x, data = train_df)
-smooth_mod = gam(y ~ s(x), data = train_df)
-wiggly_mod = gam(y ~ s(x, k = 30), sp = 10e-6, data = train_df)
-```
-
+Fit three models to the training data. 
 
 * `mgcv::gam` package for non-linear models. The three models below have very different levels of complexity and arent' nested, so testing approaches for nested model don't apply.
 
@@ -374,7 +420,7 @@ train_df %>%
 # Linear model is too simple, never capture the true relationship between variables because of its simplicity. The standard `gam` fit is pretty good. The wiggly `gam` fit is too complex, chasing data points and will change a lot from one training dataset to the next. Smooth model should do best in term of accuracy. 
 ```
 
-Look at prediction accuracy
+Look at prediction accuracy: compute root mean squared errors (RMSEs) for each model
 
 ```{r}
 rmse(linear_mod, test_df)
@@ -382,12 +428,13 @@ rmse(smooth_mod, test_df)
 rmse(wiggly_mod, test_df)
 ```
 
-*The `modelr` has other outcome measures - RMSE is the most common, but median absolute deviation is pretty common as well. The RMSEs are suggestive that both nonlinear models work better than the linear model, and that the smooth fit is better than the wiggly fit. 
-
+*The `modelr` has other outcome measures - RMSE is the most common, but median absolute deviation is pretty common as well. 
+* The RMSEs are suggestive that both nonlinear models work better than the linear model, and that the smooth fit is better than the wiggly fit. 
+* To get a sense of model stability we need to iterate this whole process.
 
 ## CV using `modelr` 
 
-* `crossv_mc` performs the training/testing split multiple times.
+* `crossv_mc` performs the training/testing split multiple times and stores the datasets using list columns. 
 
 ```{r}
 cv_df = 
@@ -401,6 +448,7 @@ cv_df %>%  pull(train) %>% .[[1]] %>%  as_tibble()
 cv_df %>%  pull(test) %>% .[[1]] %>%  as_tibble()
 ```
 
+`crossv_mc` tries to be smart about memory – rather than repeating the dataset a bunch of times, it saves the data once and stores the indexes for each training / testing split using a resample object. This can be coerced to a dataframe, and can often be treated exactly like a dataframe. However, it’s not compatible with gam, so we have to convert each training and testing dataset (and lose that nice memory-saving stuff in the process) using the code below. It’s worth noting, though, that if all the models you want to fit use lm, you can skip this.
 
 ```{r}
 cv_df =
@@ -429,7 +477,8 @@ cv_df =
     )
 ```
 
-What do these results say about model choices?
+
+I’m mostly focused on RMSE as a way to compare these models, and the plot below shows the distribution of RMSE values for each candidate model.
 
 ```{r}
 cv_df %>% 
@@ -461,7 +510,7 @@ cv_df %>%
 ```
 
 
-## Real dataset
+## Example: Child growth
 
 * A cross-sectional study of Nepalese children was carried out to understand the relationships between various measures of growth, including weight and arm circumference.
 
@@ -808,7 +857,7 @@ baltimore_df =
 
 glm(resolution ~ victim_age + victim_race + victim_sex, 
     data = baltimore_df,
-    family = bionomial()) %>% 
+    family = binomial()) %>% 
   broom::tidy() %>% 
   mutate(
     OR = exp(estimate),
@@ -827,7 +876,7 @@ models_results_df =
   homicide_df %>% 
   nest(data = -city_state) %>% 
   mutate(
-    models = map(.x = data, glm(resolution ~ victim_age + victim_race + victim_sex, data = .x, family = binomial)),
+    models = map(.x = data, ~glm(resolution ~ victim_age + victim_race + victim_sex, data = .x, family = binomial)),
     results = map(models, broom::tidy)
   ) %>% 
   select(city_state, results) %>% 
